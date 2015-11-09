@@ -12,7 +12,9 @@ var GroupModel = MenuItemModel.extend({
         entries: null,
         filterKey: 'group',
         editable: true,
-        top: false
+        top: false,
+        drag: true,
+        drop: true
     }),
 
     initialize: function() {
@@ -84,6 +86,10 @@ var GroupModel = MenuItemModel.extend({
         });
     },
 
+    getOwnSubGroups: function() {
+        return this.group.groups;
+    },
+
     removeEntry: function(entry) {
         this.get('entries').remove(entry);
     },
@@ -94,6 +100,7 @@ var GroupModel = MenuItemModel.extend({
 
     removeGroup: function(group) {
         this.get('items').remove(group);
+        this.trigger('remove', group);
     },
 
     addGroup: function(group) {
@@ -115,11 +122,11 @@ var GroupModel = MenuItemModel.extend({
 
     moveToTrash: function() {
         this.file.setModified();
-        this.file.db.remove(this.group, this.parentGroup.group);
+        this.file.db.remove(this.group);
         this.parentGroup.removeGroup(this);
         var trashGroup = this.file.getTrashGroup();
         if (trashGroup) {
-            //trashGroup.addGroup(this); // TODO: groups in trash are currently not displayed
+            trashGroup.addGroup(this);
             this.parentGroup = trashGroup;
             this.deleted = true;
         }
@@ -132,6 +139,29 @@ var GroupModel = MenuItemModel.extend({
             this.parentGroup.group.groups.splice(ix, 1);
         }
         this.parentGroup.removeGroup(this);
+        this.trigger('delete');
+    },
+
+    moveHere: function(object) {
+        if (!object || object.id === this.id || object.file !== this.file) {
+            return;
+        }
+        if (object instanceof GroupModel) {
+            if (this.group.groups.indexOf(object.group) >= 0) {
+                return;
+            }
+            this.file.db.move(object.group, this.group);
+            object.parentGroup.removeGroup(object);
+            object.trigger('delete');
+            this.addGroup(object);
+        } else if (object instanceof EntryModel) {
+            if (this.group.entries.indexOf(object.entry) >= 0) {
+                return;
+            }
+            this.file.db.move(object.entry, this.group);
+            object.group.removeEntry(object);
+            this.addEntry(object);
+        }
     }
 });
 
@@ -141,7 +171,7 @@ GroupModel.fromGroup = function(group, file, parentGroup) {
     if (parentGroup) {
         model.parentGroup = parentGroup;
     } else {
-        model.set({ top: true }, { silent: true });
+        model.set({ top: true, drag: false }, { silent: true });
     }
     return model;
 };

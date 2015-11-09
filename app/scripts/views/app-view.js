@@ -186,8 +186,20 @@ var AppView = Backbone.View.extend({
         }
     },
 
-    beforeUnload: function() {
+    beforeUnload: function(e) {
         if (this.model.files.hasUnsavedFiles()) {
+            if (Launcher && !Launcher.exitRequested) {
+                Alerts.yesno({
+                    header: 'Unsaved changes!',
+                    body: 'You have unsaved files, all changes will be lost.',
+                    buttons: [{result: 'yes', title: 'Exit and discard unsaved changes'}, {result: '', title: 'Don\'t exit'}],
+                    success: function() {
+                        Launcher.exit();
+                    }
+                });
+                e.returnValue = false;
+                return false;
+            }
             return 'You have unsaved files, all changes will be lost.';
         }
     },
@@ -238,6 +250,7 @@ var AppView = Backbone.View.extend({
                 try {
                     file.autoSave();
                 } catch (e) {
+                    console.error('Failed to auto-save file', file.get('path'), e);
                     fileId = file.cid;
                 }
             } else if (!fileId) {

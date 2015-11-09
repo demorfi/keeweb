@@ -1,6 +1,7 @@
 'use strict';
 
 var Backbone = require('backbone'),
+    GroupModel = require('../../models/group-model'),
     Scrollable = require('../../mixins/scrollable'),
     FieldViewText = require('../fields/field-view-text'),
     FieldViewDate = require('../fields/field-view-date'),
@@ -23,6 +24,7 @@ var Backbone = require('backbone'),
 var DetailsView = Backbone.View.extend({
     template: require('templates/details/details.html'),
     emptyTemplate: require('templates/details/details-empty.html'),
+    groupTemplate: require('templates/details/details-group.html'),
 
     fieldViews: null,
     views: null,
@@ -73,6 +75,10 @@ var DetailsView = Backbone.View.extend({
             this.$el.html(this.emptyTemplate());
             return;
         }
+        if (this.model instanceof GroupModel) {
+            this.$el.html(this.groupTemplate());
+            return;
+        }
         this.$el.html(this.template(this.model));
         this.setSelectedColor(this.model.color);
         this.addFieldViews();
@@ -98,7 +104,7 @@ var DetailsView = Backbone.View.extend({
         var model = this.model;
         this.fieldViews.push(new FieldViewText({ model: { name: '$UserName', title: 'User',
             value: function() { return model.user; } } }));
-        this.fieldViews.push(new FieldViewText({ model: { name: '$Password', title: 'Password',
+        this.fieldViews.push(new FieldViewText({ model: { name: '$Password', title: 'Password', canGen: true,
             value: function() { return model.password; } } }));
         this.fieldViews.push(new FieldViewUrl({ model: { name: '$URL', title: 'Website',
             value: function() { return model.url; } } }));
@@ -398,11 +404,6 @@ var DetailsView = Backbone.View.extend({
     },
 
     setTitle: function(title) {
-        if (!title && this.model.isJustCreated) {
-            this.model.removeWithoutHistory();
-            Backbone.trigger('refresh');
-            return;
-        }
         if (this.model.title instanceof kdbxweb.ProtectedValue) {
             title = kdbxweb.ProtectedValue.fromString(title);
         }
@@ -410,7 +411,7 @@ var DetailsView = Backbone.View.extend({
             this.model.setField('Title', title);
             this.entryUpdated(true);
         }
-        var newTitle = $('<h1 class="details__header-title"></h1>').text(title);
+        var newTitle = $('<h1 class="details__header-title"></h1>').text(title || '(no title)');
         this.$el.find('.details__header-title-input').replaceWith(newTitle);
     },
 
