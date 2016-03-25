@@ -2,7 +2,6 @@
   @include flex(1);
   @include display(flex);
   @include align-self(stretch);
-  @include display(flex);
   @include align-items(center);
   @include flex-direction(column);
   @include justify-content(center);
@@ -12,6 +11,7 @@
     @include display(flex);
     @include align-items(stretch);
     @include flex-direction(row);
+    @include flex-shrink(0);
     .open--drag & { display: none; }
   }
 
@@ -47,11 +47,13 @@
       @include flex-direction(row);
       @include justify-content(flex-start);
       @include align-items(stretch);
+      @include flex-shrink(0);
       margin-bottom: $base-padding-v;
     }
     &-enter-btn, &-opening-icon {
       padding: .6em $base-spacing;
       position: absolute;
+      left: 100%;
       @include mobile { display: none; }
       @include th { color: muted-color(); }
       >i { font-size: 3em; }
@@ -72,7 +74,7 @@
   }
 
   input[type=password].open__pass-input {
-    font-size: 22px;
+    font-size: $large-pass-font-size;
     margin-bottom: 0;
     &[readonly] { cursor: pointer; }
     @include mobile {
@@ -85,8 +87,8 @@
     @include flex-direction(row);
     @include justify-content(space-between);
     @include align-items(stretch);
+    height: 2em;
     &-key-file {
-      height: 2em;
       .open--file:not(.open--opening) & { cursor: pointer; }
       .open--key-file & { @include th { color: medium-color(); } }
       &-dropbox {
@@ -103,8 +105,7 @@
       }
     }
 
-    &-key-file, &-label-offline, &-label-offline:before, input[type=checkbox] + label.open__settings-label-offline:before,
-    &-key-file-dropbox {
+    &-key-file, &-key-file-dropbox {
       @include th {
         color: muted-color();
       }
@@ -114,11 +115,6 @@
         }
       }
     }
-    &-label-offline { font-weight: normal; }
-  }
-
-  &--file:not(.open--opening) input[type=checkbox] + label.open__settings-label-offline:hover:before {
-     @include th { color: medium-color(); }
   }
 
   &__last {
@@ -132,6 +128,7 @@
       @include flex-direction(row);
       @include justify-content(flex-start);
       @include align-items(baseline);
+      @include flex-shrink(0);
       .open:not(.open--opening) & {
         @include area-selectable;
       }

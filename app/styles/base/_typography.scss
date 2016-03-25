@@ -7,7 +7,7 @@ body {
   }
   overflow: auto;
   font-family: $base-font-family;
-  font-feature-settings: "kern", "liga", "pnum";
+  font-feature-settings: "kern", "liga";
   font-size: $base-font-size;
   line-height: $base-line-height;
   cursor: default;
@@ -77,7 +77,6 @@ img {
 
 .thin {
   font-weight: 200;
-  font-family: $font-family-text-thin;
 }
 
 * {

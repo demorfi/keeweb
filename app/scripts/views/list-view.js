@@ -6,12 +6,11 @@ var Backbone = require('backbone'),
     ListSearchView = require('./list-search-view'),
     EntryPresenter = require('../presenters/entry-presenter'),
     DragDropInfo = require('../comp/drag-drop-info'),
-    baron = require('baron');
+    AppSettingsModel = require('../models/app-settings-model');
 
 var ListView = Backbone.View.extend({
-    template: require('templates/list.html'),
-    itemTemplate: require('templates/list-item-short.html'),
-    emptyTemplate: require('templates/list-empty.html'),
+    template: require('templates/list.hbs'),
+    emptyTemplate: require('templates/list-empty.hbs'),
 
     events: {
         'click .list__item': 'itemClick',
@@ -21,7 +20,9 @@ var ListView = Backbone.View.extend({
     views: null,
 
     minWidth: 200,
+    minHeight: 200,
     maxWidth: 500,
+    maxHeight: 500,
 
     itemsEl: null,
 
@@ -36,8 +37,11 @@ var ListView = Backbone.View.extend({
         this.listenTo(this.views.search, 'create-group', this.createGroup);
         this.listenTo(this, 'show', this.viewShown);
         this.listenTo(this, 'hide', this.viewHidden);
+        this.listenTo(this, 'view-resize', this.viewResized);
         this.listenTo(Backbone, 'filter', this.filterChanged);
         this.listenTo(Backbone, 'entry-updated', this.entryUpdated);
+
+        this.listenTo(this.model.settings, 'change:tableView', this.setTableView);
 
         this.items = [];
     },
@@ -47,29 +51,51 @@ var ListView = Backbone.View.extend({
             this.$el.html(this.template());
             this.itemsEl = this.$el.find('.list__items>.scroller');
             this.views.search.setElement(this.$el.find('.list__header')).render();
+            this.setTableView();
 
-            this.scroll = baron({
+            this.createScroll({
                 root: this.$el.find('.list__items')[0],
                 scroller: this.$el.find('.scroller')[0],
-                bar: this.$el.find('.scroller__bar')[0],
-                $: Backbone.$
+                bar: this.$el.find('.scroller__bar')[0]
             });
-            this.scrollerBar = this.$el.find('.scroller__bar');
-            this.scrollerBarWrapper = this.$el.find('.scroller__bar-wrapper');
         }
         if (this.items.length) {
-            var presenter = new EntryPresenter(this.getDescField());
+            var itemTemplate = this.getItemTemplate();
+            var itemsTemplate = this.getItemsTemplate();
+            var noColor = AppSettingsModel.instance.get('colorfulIcons') ? '' : 'grayscale';
+            var presenter = new EntryPresenter(this.getDescField(), noColor, this.model.activeEntryId);
             var itemsHtml = '';
             this.items.forEach(function (item) {
                 presenter.present(item);
-                itemsHtml += this.itemTemplate(presenter);
+                itemsHtml += itemTemplate(presenter);
             }, this);
-            this.itemsEl.html(itemsHtml).scrollTop(0);
+            var html = itemsTemplate({ items: itemsHtml });
+            this.itemsEl.html(html);
         } else {
             this.itemsEl.html(this.emptyTemplate());
         }
         this.pageResized();
         return this;
+    },
+
+    getItemsTemplate: function() {
+        if (this.model.settings.get('tableView')) {
+            return require('templates/list-table.hbs');
+        } else {
+            return this.renderPlainItems;
+        }
+    },
+
+    renderPlainItems: function(itemsHtml) {
+        return itemsHtml.items;
+    },
+
+    getItemTemplate: function() {
+        if (this.model.settings.get('tableView')) {
+            return require('templates/list-item-table.hbs');
+        } else {
+            return require('templates/list-item-short.hbs');
+        }
     },
 
     getDescField: function() {
@@ -86,16 +112,14 @@ var ListView = Backbone.View.extend({
     },
 
     selectPrev: function() {
-        var activeItem = this.items.getActive(),
-            ix = this.items.indexOf(activeItem);
+        var ix = this.items.indexOf(this.items.get(this.model.activeEntryId));
         if (ix > 0) {
             this.selectItem(this.items.at(ix - 1));
         }
     },
 
     selectNext: function() {
-        var activeItem = this.items.getActive(),
-            ix = this.items.indexOf(activeItem);
+        var ix = this.items.indexOf(this.items.get(this.model.activeEntryId));
         if (ix < this.items.length - 1) {
             this.selectItem(this.items.at(ix + 1));
         }
@@ -114,10 +138,10 @@ var ListView = Backbone.View.extend({
     },
 
     selectItem: function(item) {
-        this.items.setActive(item);
+        this.model.activeEntryId = item.id;
         Backbone.trigger('select-entry', item);
         this.itemsEl.find('.list__item--active').removeClass('list__item--active');
-        var itemEl = document.getElementById(item.get('id'));
+        var itemEl = document.getElementById(item.id);
         itemEl.classList.add('list__item--active');
         var listEl = this.itemsEl[0],
             itemRect = itemEl.getBoundingClientRect(),
@@ -137,6 +161,34 @@ var ListView = Backbone.View.extend({
         this.views.search.hide();
     },
 
+    setTableView: function() {
+        var isTable = this.model.settings.get('tableView');
+        this.dragView.setCoord(isTable ? 'y' : 'x');
+        this.setDefaultSize();
+    },
+
+    setDefaultSize: function() {
+        this.setSize(this.model.settings.get('listViewWidth'));
+    },
+
+    setSize: function(size) {
+        this.$el.css({ width: null, height: null });
+        if (size) {
+            this.$el.css('flex', '0 0 ' + size + 'px');
+        } else {
+            this.$el.css('flex', null);
+        }
+    },
+
+    viewResized: function(size) {
+        this.setSize(size);
+        this.throttleSetViewSizeSetting(size);
+    },
+
+    throttleSetViewSizeSetting: _.throttle(function(size) {
+        AppSettingsModel.instance.set('listViewWidth', size);
+    }, 1000),
+
     filterChanged: function(filter) {
         this.items = filter.entries;
         this.render();
@@ -151,8 +203,8 @@ var ListView = Backbone.View.extend({
     itemDragStart: function(e) {
         e.stopPropagation();
         var id = $(e.target).closest('.list__item').attr('id');
-        e.dataTransfer.setData('text/entry', id);
-        e.dataTransfer.effectAllowed = 'move';
+        e.originalEvent.dataTransfer.setData('text/entry', id);
+        e.originalEvent.dataTransfer.effectAllowed = 'move';
         DragDropInfo.dragObject = this.items.get(id);
     }
 });

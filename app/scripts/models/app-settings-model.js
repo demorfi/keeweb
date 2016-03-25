@@ -1,14 +1,25 @@
 'use strict';
 
 var Backbone = require('backbone'),
-    Launcher = require('../comp/launcher');
-
-var FileName = 'app-settings.json';
+    SettingsStore = require('../comp/settings-store');
 
 var AppSettingsModel = Backbone.Model.extend({
     defaults: {
-        theme: 'd',
-        expandGroups: true
+        theme: 'fb',
+        expandGroups: true,
+        listViewWidth: null,
+        menuViewWidth: null,
+        tagsViewHeight: null,
+        autoUpdate: 'install',
+        clipboardSeconds: 0,
+        autoSave: true,
+        idleMinutes: 15,
+        minimizeOnClose: false,
+        tableView: false,
+        colorfulIcons: false,
+        lockOnMinimize: true,
+        helpTipCopyShown: false,
+        skipOpenLocalWarn: false
     },
 
     initialize: function() {
@@ -16,31 +27,14 @@ var AppSettingsModel = Backbone.Model.extend({
     },
 
     load: function() {
-        try {
-            var data;
-            if (Launcher) {
-                data = JSON.parse(Launcher.readFile(Launcher.getUserDataPath(FileName), 'utf8'));
-            } else if (typeof localStorage !== 'undefined' && localStorage.appSettings) {
-                data = JSON.parse(localStorage.appSettings);
-            }
-            if (data) {
-                this.set(data, {silent: true});
-            }
-        } catch (e) {
-            console.error('Error loading settings', e);
+        var data = SettingsStore.load('app-settings');
+        if (data) {
+            this.set(data, {silent: true});
         }
     },
 
     save: function() {
-        try {
-            if (Launcher) {
-                Launcher.writeFile(Launcher.getUserDataPath(FileName), JSON.stringify(this.attributes));
-            } else if (typeof localStorage !== 'undefined') {
-                localStorage.appSettings = JSON.stringify(this.attributes);
-            }
-        } catch (e) {
-            console.error('Error saving settings', e);
-        }
+        SettingsStore.save('app-settings', this.attributes);
     }
 });
 

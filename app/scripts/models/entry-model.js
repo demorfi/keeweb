@@ -4,32 +4,37 @@ var Backbone = require('backbone'),
     AttachmentModel = require('./attachment-model'),
     IconMap = require('../const/icon-map'),
     Color = require('../util/color'),
+    IconUrl = require('../util/icon-url'),
     kdbxweb = require('kdbxweb');
 
 var EntryModel = Backbone.Model.extend({
     defaults: {},
+    urlRegex: /^https?:\/\//i,
 
-    buildInFields: ['Title', 'Password', 'Notes', 'URL', 'UserName'],
+    builtInFields: ['Title', 'Password', 'Notes', 'URL', 'UserName'],
 
     initialize: function() {
     },
 
     setEntry: function(entry, group, file) {
-        this.set({ id: entry.uuid.id }, {silent: true});
         this.entry = entry;
         this.group = group;
         this.file = file;
+        if (this.id === entry.uuid.id) {
+            this._checkUpdatedEntry();
+        }
         this._fillByEntry();
-        this._fillInTrash();
     },
 
     _fillByEntry: function() {
         var entry = this.entry;
-        this.fileName = this.file.db.meta.name;
+        this.set({id: entry.uuid.id}, {silent: true});
+        this.fileName = this.file.get('name');
         this.title = entry.fields.Title || '';
         this.password = entry.fields.Password || kdbxweb.ProtectedValue.fromString('');
         this.notes = entry.fields.Notes || '';
         this.url = entry.fields.URL || '';
+        this.displayUrl = this._getDisplayUrl(entry.fields.URL);
         this.user = entry.fields.UserName || '';
         this.iconId = entry.icon;
         this.icon = this._iconFromId(entry.icon);
@@ -42,9 +47,19 @@ var EntryModel = Backbone.Model.extend({
         this.expires = entry.times.expires ? entry.times.expiryTime : undefined;
         this.expired = entry.times.expires && entry.times.expiryTime <= new Date();
         this.historyLength = entry.history.length;
+        this._buildCustomIcon();
         this._buildSearchText();
         this._buildSearchTags();
         this._buildSearchColor();
+    },
+
+    _checkUpdatedEntry: function() {
+        if (this.isJustCreated) {
+            this.isJustCreated = false;
+        }
+        if (this.unsaved && +this.updated !== +this.entry.times.lastModTime) {
+            this.unsaved = false;
+        }
     },
 
     _buildSearchText: function() {
@@ -63,6 +78,15 @@ var EntryModel = Backbone.Model.extend({
         this.searchText = text;
     },
 
+    _buildCustomIcon: function() {
+        this.customIcon = null;
+        this.customIconId = null;
+        if (this.entry.customIcon) {
+            this.customIcon = IconUrl.toDataUrl(this.file.db.meta.customIcons[this.entry.customIcon]);
+            this.customIconId = this.entry.customIcon.toString();
+        }
+    },
+
     _buildSearchTags: function() {
         this.searchTags = this.entry.tags.map(function(tag) { return tag.toLowerCase(); });
     },
@@ -75,33 +99,32 @@ var EntryModel = Backbone.Model.extend({
         return IconMap[id];
     },
 
+    _getDisplayUrl: function(url) {
+        if (!url) {
+            return '';
+        }
+        return url.replace(this.urlRegex, '');
+    },
+
     _colorToModel: function(color) {
         return color ? Color.getNearest(color) : null;
     },
 
     _fieldsToModel: function(fields) {
-        return _.omit(fields, this.buildInFields);
+        return _.omit(fields, this.builtInFields);
     },
 
     _attachmentsToModel: function(binaries) {
         var att = [];
         _.forEach(binaries, function(data, title) {
-            att.push(AttachmentModel.fromAttachment({ data: data, title: title }));
+            if (data && data.ref) {
+                data = this.file.db.meta.binaries[data.ref];
+            }
+            if (data) {
+                att.push(AttachmentModel.fromAttachment({data: data, title: title}));
+            }
         }, this);
         return att;
-    },
-
-    _fillInTrash: function() {
-        this.deleted = false;
-        if (this.file.db.meta.recycleBinEnabled) {
-            var trashGroupId = this.file.db.meta.recycleBinUuid.id;
-            for (var group = this.group; group; group = group.group) {
-                if (group.id === trashGroupId) {
-                    this.deleted = true;
-                    break;
-                }
-            }
-        }
     },
 
     _entryModified: function() {
@@ -117,9 +140,98 @@ var EntryModel = Backbone.Model.extend({
     },
 
     matches: function(filter) {
-        return (!filter.tagLower || this.searchTags.indexOf(filter.tagLower) >= 0) &&
-            (!filter.textLower || this.searchText.indexOf(filter.textLower) >= 0) &&
+        return !filter ||
+            (!filter.tagLower || this.searchTags.indexOf(filter.tagLower) >= 0) &&
+            (!filter.textLower || (filter.advanced ? this.matchesAdv(filter) : this.searchText.indexOf(filter.textLower) >= 0)) &&
             (!filter.color || filter.color === true && this.searchColor || this.searchColor === filter.color);
+    },
+
+    matchesAdv: function(filter) {
+        var adv = filter.advanced;
+        var search, match;
+        if (adv.regex) {
+            try { search = new RegExp(filter.text, adv.cs ? '' : 'i'); }
+            catch (e) { return false; }
+            match = this.matchRegex;
+        } else if (adv.cs) {
+            search = filter.text;
+            match = this.matchString;
+        } else {
+            search = filter.textLower;
+            match = this.matchStringLower;
+        }
+        if (this.matchEntry(this.entry, adv, match, search)) {
+            return true;
+        }
+        if (adv.history) {
+            for (var i = 0, len = this.entry.history.length; i < len; i++) {
+                if (this.matchEntry(this.entry.history[0], adv, match, search)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    },
+
+    matchString: function(str, find) {
+        if (str.isProtected) {
+            return str.includes(find);
+        }
+        return str.indexOf(find) >= 0;
+    },
+
+    matchStringLower: function(str, findLower) {
+        if (str.isProtected) {
+            return str.includesLower(findLower);
+        }
+        return str.toLowerCase().indexOf(findLower) >= 0;
+    },
+
+    matchRegex: function(str, regex) {
+        if (str.isProtected) {
+            str = str.getText();
+        }
+        return regex.test(str);
+    },
+
+    matchEntry: function(entry, adv, compare, search) {
+        var matchField = this.matchField;
+        if (adv.user && matchField(entry, 'UserName', compare, search)) {
+            return true;
+        }
+        if (adv.url && matchField(entry, 'URL', compare, search)) {
+            return true;
+        }
+        if (adv.notes && matchField(entry, 'Notes', compare, search)) {
+            return true;
+        }
+        if (adv.pass && matchField(entry, 'Password', compare, search)) {
+            return true;
+        }
+        if (adv.other && matchField(entry, 'Title', compare, search)) {
+            return true;
+        }
+        var matches = false;
+        if (adv.other || adv.protect) {
+            var builtInFields = this.builtInFields;
+            var fieldNames = Object.keys(entry.fields);
+            matches = fieldNames.some(function (field) {
+                if (builtInFields.indexOf(field) >= 0) {
+                    return false;
+                }
+                if (typeof entry.fields[field] === 'string') {
+                    return adv.other && matchField(entry, field, compare, search);
+                } else {
+                    return adv.protect && matchField(entry, field, compare, search);
+                }
+            });
+        }
+        return matches;
+    },
+
+    matchField: function(entry, field, compare, search) {
+        var val = entry.fields[field];
+        return val ? compare(val, search) : false;
     },
 
     setColor: function(color) {
@@ -131,6 +243,13 @@ var EntryModel = Backbone.Model.extend({
     setIcon: function(iconId) {
         this._entryModified();
         this.entry.icon = iconId;
+        this.entry.customIcon = undefined;
+        this._fillByEntry();
+    },
+
+    setCustomIcon: function(customIconId) {
+        this._entryModified();
+        this.entry.customIcon = new kdbxweb.KdbxUuid(customIconId);
         this._fillByEntry();
     },
 
@@ -149,7 +268,8 @@ var EntryModel = Backbone.Model.extend({
 
     setField: function(field, val) {
         this._entryModified();
-        if (val || this.buildInFields.indexOf(field) >= 0) {
+        var hasValue = val && (typeof val === 'string' || val.isProtected && val.byteLength);
+        if (hasValue || this.builtInFields.indexOf(field) >= 0) {
             this.entry.fields[field] = val;
         } else {
             delete this.entry.fields[field];
@@ -163,7 +283,15 @@ var EntryModel = Backbone.Model.extend({
 
     addAttachment: function(name, data) {
         this._entryModified();
-        this.entry.binaries[name] = kdbxweb.ProtectedValue.fromBinary(data);
+        var binaryId;
+        for (var i = 0; ; i++) {
+            if (!this.file.db.meta.binaries[i]) {
+                binaryId = i.toString();
+                break;
+            }
+        }
+        this.file.db.meta.binaries[binaryId] = data;
+        this.entry.binaries[name] = { ref: binaryId };
         this._fillByEntry();
     },
 
@@ -185,7 +313,7 @@ var EntryModel = Backbone.Model.extend({
     deleteHistory: function(historyEntry) {
         var ix = this.entry.history.indexOf(historyEntry);
         if (ix >= 0) {
-            this.entry.history.splice(ix, 1);
+            this.entry.removeHistory(ix);
         }
         this._fillByEntry();
     },
@@ -206,9 +334,10 @@ var EntryModel = Backbone.Model.extend({
     },
 
     discardUnsaved: function() {
-        if (this.unsaved) {
+        if (this.unsaved && this.entry.history.length) {
             this.unsaved = false;
-            var historyEntry = this.entry.history.pop();
+            var historyEntry = this.entry.history[this.entry.history.length - 1];
+            this.entry.removeHistory(this.entry.history.length - 1);
             this.entry.fields = {};
             this.entry.binaries = {};
             this.entry.copyFrom(historyEntry);
@@ -217,14 +346,18 @@ var EntryModel = Backbone.Model.extend({
     },
 
     moveToTrash: function() {
-        this.file.db.remove(this.entry);
-        this.group.removeEntry(this);
-        var trashGroup = this.file.getTrashGroup();
-        if (trashGroup) {
-            trashGroup.addEntry(this);
-            this.group = trashGroup;
-            this.deleted = true;
+        this.file.setModified();
+        if (this.isJustCreated) {
+            this.isJustCreated = false;
         }
+        this.file.db.remove(this.entry);
+        this.file.reload();
+    },
+
+    deleteFromTrash: function() {
+        this.file.setModified();
+        this.file.db.move(this.entry, null);
+        this.file.reload();
     },
 
     removeWithoutHistory: function() {
@@ -232,7 +365,7 @@ var EntryModel = Backbone.Model.extend({
         if (ix >= 0) {
             this.group.group.entries.splice(ix, 1);
         }
-        this.group.removeEntry(this);
+        this.file.reload();
     }
 });
 

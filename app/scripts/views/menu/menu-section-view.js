@@ -4,10 +4,10 @@ var Backbone = require('backbone'),
     MenuItemView = require('./menu-item-view'),
     Resizable = require('../../mixins/resizable'),
     Scrollable = require('../../mixins/scrollable'),
-    baron = require('baron');
+    AppSettingsModel = require('../../models/app-settings-model');
 
 var MenuSectionView = Backbone.View.extend({
-    template: require('templates/menu/menu-section.html'),
+    template: require('templates/menu/menu-section.hbs'),
 
     events: {},
 
@@ -20,6 +20,7 @@ var MenuSectionView = Backbone.View.extend({
     initialize: function () {
         this.itemViews = [];
         this.listenTo(this.model, 'change-items', this.itemsChanged);
+        this.listenTo(this, 'view-resize', this.viewResized);
     },
 
     render: function() {
@@ -28,14 +29,11 @@ var MenuSectionView = Backbone.View.extend({
             this.itemsEl = this.model.get('scrollable') ? this.$el.find('.scroller') : this.$el;
             if (this.model.get('scrollable')) {
                 this.initScroll();
-                this.scroll = baron({
+                this.createScroll({
                     root: this.$el[0],
                     scroller: this.$el.find('.scroller')[0],
-                    bar: this.$el.find('.scroller__bar')[0],
-                    $: Backbone.$
+                    bar: this.$el.find('.scroller__bar')[0]
                 });
-                this.scrollerBar = this.$el.find('.scroller__bar');
-                this.scrollerBarWrapper = this.$el.find('.scroller__bar-wrapper');
             }
         } else {
             this.removeInnerViews();
@@ -45,9 +43,14 @@ var MenuSectionView = Backbone.View.extend({
             itemView.render();
             this.itemViews.push(itemView);
         }, this);
-        if (this.model.get('scrollable')) {
-            this.pageResized();
+        if (this.model.get('drag')) {
+            var height = AppSettingsModel.instance.get('tagsViewHeight');
+            if (typeof height === 'number') {
+                this.$el.height();
+                this.$el.css('flex', '0 0 ' + height + 'px');
+            }
         }
+        this.pageResized();
     },
 
     remove : function() {
@@ -65,7 +68,16 @@ var MenuSectionView = Backbone.View.extend({
 
     itemsChanged: function() {
         this.render();
-    }
+    },
+
+    viewResized: function(size) {
+        this.$el.css('flex', '0 0 ' + (size ? size + 'px' : 'auto'));
+        this.saveViewHeight(size);
+    },
+
+    saveViewHeight: _.throttle(function(size) {
+        AppSettingsModel.instance.set('tagsViewHeight', size);
+    }, 1000)
 });
 
 _.extend(MenuSectionView.prototype, Resizable);

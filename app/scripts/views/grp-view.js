@@ -2,16 +2,17 @@
 
 var Backbone = require('backbone'),
     Scrollable = require('../mixins/scrollable'),
-    IconSelectView = require('./icon-select-view'),
-    baron = require('baron');
+    IconSelectView = require('./icon-select-view');
 
 var GrpView = Backbone.View.extend({
-    template: require('templates/grp.html'),
+    template: require('templates/grp.hbs'),
 
     events: {
         'click .grp__icon': 'showIconsSelect',
         'click .grp__buttons-trash': 'moveToTrash',
-        'blur #grp__field-title': 'titleBlur'
+        'click .grp__back-button': 'returnToApp',
+        'blur #grp__field-title': 'titleBlur',
+        'change #grp__check-search': 'setEnableSearching'
     },
 
     initialize: function() {
@@ -21,24 +22,22 @@ var GrpView = Backbone.View.extend({
     render: function() {
         this.removeSubView();
         if (this.model) {
-            this.$el.html(this.template({
+            this.renderTemplate({
                 title: this.model.get('title'),
                 icon: this.model.get('icon') || 'folder',
+                customIcon: this.model.get('customIcon'),
+                enableSearching: this.model.get('enableSearching') !== false,
                 readonly: this.model.get('top')
-            }));
+            }, { plain: true });
             if (!this.model.get('title')) {
                 this.$el.find('#grp__field-title').focus();
             }
         }
-        this.scroll = baron({
+        this.createScroll({
             root: this.$el.find('.details__body')[0],
             scroller: this.$el.find('.scroller')[0],
-            bar: this.$el.find('.scroller__bar')[0],
-            $: Backbone.$
+            bar: this.$el.find('.scroller__bar')[0]
         });
-        this.scroller = this.$el.find('.scroller');
-        this.scrollerBar = this.$el.find('.scroller__bar');
-        this.scrollerBarWrapper = this.$el.find('.scroller__bar-wrapper');
         this.pageResized();
         return this;
     },
@@ -75,7 +74,13 @@ var GrpView = Backbone.View.extend({
         if (this.views.sub) {
             this.removeSubView();
         } else {
-            var subView = new IconSelectView({el: this.$el.find('.grp__icons'), model: {iconId: this.model.get('iconId')}});
+            var subView = new IconSelectView({
+                el: this.$el.find('.grp__icons'),
+                model: {
+                    iconId: this.model.get('customIconId') || this.model.get('iconId'),
+                    file: this.model.file
+                }
+            });
             this.listenTo(subView, 'select', this.iconSelected);
             subView.render();
             this.views.sub = subView;
@@ -83,9 +88,13 @@ var GrpView = Backbone.View.extend({
         this.pageResized();
     },
 
-    iconSelected: function(iconId) {
-        if (iconId !== this.model.get('iconId')) {
-            this.model.setIcon(iconId);
+    iconSelected: function(sel) {
+        if (sel.custom) {
+            if (sel.id !== this.model.get('customIconId')) {
+                this.model.setCustomIcon(sel.id);
+            }
+        } else if (sel.id !== this.model.get('iconId')) {
+            this.model.setIcon(+sel.id);
         }
         this.render();
     },
@@ -93,6 +102,15 @@ var GrpView = Backbone.View.extend({
     moveToTrash: function() {
         this.model.moveToTrash();
         Backbone.trigger('select-all');
+    },
+
+    setEnableSearching: function(e) {
+        var enabled = e.target.checked;
+        this.model.setEnableSearching(enabled);
+    },
+
+    returnToApp: function() {
+        Backbone.trigger('edit-group');
     }
 });
 

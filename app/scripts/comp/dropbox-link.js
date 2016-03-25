@@ -1,11 +1,29 @@
 'use strict';
 
 var Dropbox = require('dropbox'),
-    Alerts = require('./alerts');
+    Alerts = require('./alerts'),
+    Launcher = require('./launcher'),
+    Logger = require('../util/logger'),
+    Locale = require('../util/locale'),
+    Links = require('../const/links');
+
+var logger = new Logger('dropbox');
 
 var DropboxKeys = {
-    AppFolder: 'qp7ctun6qt5n9d6'
+    AppFolder: 'qp7ctun6qt5n9d6',
+    AppFolderKeyParts: ['qp7ctun6', 'qt5n9d6'] // to allow replace key by sed, compare in this way
 };
+
+var DropboxCustomErrors = {
+    BadKey: 'bad-key'
+};
+
+function isValidKey() {
+    var isSelfHostedApp = !/^http(s?):\/\/localhost:8085/.test(location.href) &&
+        !/http(s?):\/\/antelle\.github\.io\/keeweb/.test(location.href) &&
+        !/http(s?):\/\/app\.keeweb\.info/.test(location.href);
+    return Launcher || !isSelfHostedApp || DropboxKeys.AppFolder !== DropboxKeys.AppFolderKeyParts.join('');
+}
 
 var DropboxChooser = function(callback) {
     this.cb = callback;
@@ -108,13 +126,28 @@ DropboxChooser.prototype.readFile = function(url) {
 };
 
 var DropboxLink = {
+    ERROR_CONFLICT: Dropbox.ApiError.CONFLICT,
+    ERROR_NOT_FOUND: Dropbox.ApiError.NOT_FOUND,
     _getClient: function(complete) {
         if (this._dropboxClient && this._dropboxClient.isAuthenticated()) {
             complete(null, this._dropboxClient);
             return;
         }
-        var client = new Dropbox.Client({ key: DropboxKeys.AppFolder });
-        client.authDriver(new Dropbox.AuthDriver.Popup({ receiverUrl: location.href }));
+        if (!isValidKey()) {
+            Alerts.error({
+                icon: 'dropbox',
+                header: Locale.dropboxNotConfigured,
+                body: Locale.dropboxNotConfiguredBody1 + '<br/>' + Locale.dropboxNotConfiguredBody2.replace('{}',
+                        '<a href="' + Links.SelfHostedDropbox + '" target="blank">' + Locale.dropboxNotConfiguredLink + '</a>')
+            });
+            return complete(DropboxCustomErrors.BadKey);
+        }
+        var client = new Dropbox.Client({key: DropboxKeys.AppFolder});
+        if (Launcher) {
+            client.authDriver(new Dropbox.AuthDriver.Electron({ receiverUrl: location.href }));
+        } else {
+            client.authDriver(new Dropbox.AuthDriver.Popup({ receiverUrl: location.href }));
+        }
         client.authenticate((function(error, client) {
             if (!error) {
                 this._dropboxClient = client;
@@ -125,58 +158,67 @@ var DropboxLink = {
 
     _handleUiError: function(err, alertCallback, callback) {
         if (!alertCallback) {
-            alertCallback = Alerts.error.bind(Alerts);
+            if (!Alerts.alertDisplayed) {
+                alertCallback = Alerts.error.bind(Alerts);
+            }
         }
-        console.error('Dropbox error', err);
+        logger.error('Dropbox error', err);
         switch (err.status) {
             case Dropbox.ApiError.INVALID_TOKEN:
-                Alerts.yesno({
-                    icon: 'dropbox',
-                    header: 'Dropbox Login',
-                    body: 'To continue, you have to sign in to Dropbox.',
-                    buttons: [{result: 'yes', title: 'Sign In'}, {result: '', title: 'Cancel'}],
-                    success: (function() {
-                        this.authenticate(function(err) { callback(!err); });
-                    }).bind(this),
-                    cancel: function() { callback(false); }
-                });
-                return;
+                if (!Alerts.alertDisplayed) {
+                    Alerts.yesno({
+                        icon: 'dropbox',
+                        header: Locale.dropboxLogin,
+                        body: Locale.dropboxLoginBody,
+                        buttons: [{result: 'yes', title: Locale.alertSignIn}, {result: '', title: Locale.alertCancel}],
+                        success: (function () {
+                            this.authenticate(function (err) { callback(!err); });
+                        }).bind(this),
+                        cancel: function () {
+                            callback(false);
+                        }
+                    });
+                    return;
+                }
+                break;
             case Dropbox.ApiError.NOT_FOUND:
                 alertCallback({
-                    header: 'Dropbox Sync Error',
-                    body: 'The file was not found. Has it been removed from another computer?'
+                    header: Locale.dropboxSyncError,
+                    body: Locale.dropboxNotFoundBody
                 });
                 break;
             case Dropbox.ApiError.OVER_QUOTA:
                 alertCallback({
-                    header: 'Dropbox Full',
-                    body: 'Your Dropbox is full, there\'s no space left anymore.'
+                    header: Locale.dropboxFull,
+                    body: Locale.dropboxFullBody
                 });
                 break;
             case Dropbox.ApiError.RATE_LIMITED:
                 alertCallback({
-                    header: 'Dropbox Sync Error',
-                    body: 'Too many requests to Dropbox have been made by this app. Please, try again later.'
+                    header: Locale.dropboxSyncError,
+                    body: Locale.dropboxRateLimitedBody
                 });
                 break;
             case Dropbox.ApiError.NETWORK_ERROR:
                 alertCallback({
-                    header: 'Dropbox Sync Network Error',
-                    body: 'Network error occured during Dropbox sync. Please, check your connection and try again.'
+                    header: Locale.dropboxNetError,
+                    body: Locale.dropboxNetErrorBody
                 });
                 break;
             case Dropbox.ApiError.INVALID_PARAM:
             case Dropbox.ApiError.OAUTH_ERROR:
             case Dropbox.ApiError.INVALID_METHOD:
                 alertCallback({
-                    header: 'Dropbox Sync Error',
-                    body: 'Something went wrong during Dropbox sync. Please, try again later. Error code: ' + err.status
+                    header: Locale.dropboxSyncError,
+                    body: Locale.dropboxErrorBody + err.status
                 });
+                break;
+            case Dropbox.ApiError.CONFLICT:
                 break;
             default:
                 alertCallback({
-                    header: 'Dropbox Sync Error',
-                    body: 'Something went wrong during Dropbox sync. Please, try again later. Error: ' + err
+                    header: Locale.dropboxSyncError,
+                    body: Locale.dropboxErrorRepeatBody + err
                 });
                 break;
         }
@@ -189,7 +231,10 @@ var DropboxLink = {
             if (err) {
                 return callback(err);
             }
-            client[callName].apply(client, args.concat(function(err, res) {
+            var ts = logger.ts();
+            logger.debug('Call', callName);
+            client[callName].apply(client, args.concat(function(err) {
+                logger.debug('Result', callName, logger.ts(ts), arguments);
                 if (err) {
                     that._handleUiError(err, errorAlertCallback, function(repeat) {
                         if (repeat) {
@@ -199,7 +244,7 @@ var DropboxLink = {
                         }
                     });
                 } else {
-                    callback(err, res);
+                    callback.apply(null, arguments);
                 }
             }));
         });
@@ -213,9 +258,10 @@ var DropboxLink = {
         Dropbox.AuthDriver.Popup.oauthReceiver();
     },
 
-    saveFile: function(fileName, data, overwrite, complete) {
-        if (overwrite) {
-            this._callAndHandleError('writeFile', [fileName, data], complete);
+    saveFile: function(fileName, data, rev, complete, alertCallback) {
+        if (rev) {
+            var opts = typeof rev === 'string' ? { lastVersionTag: rev, noOverwrite: true, noAutoRename: true } : undefined;
+            this._callAndHandleError('writeFile', [fileName, data, opts], complete, alertCallback);
         } else {
             this.getFileList((function(err, files) {
                 if (err) { return complete(err); }
@@ -227,16 +273,24 @@ var DropboxLink = {
     },
 
     openFile: function(fileName, complete, errorAlertCallback) {
-        this._callAndHandleError('readFile', [fileName, { blob: true }], complete, errorAlertCallback);
+        this._callAndHandleError('readFile', [fileName, { arrayBuffer: true }], complete, errorAlertCallback);
+    },
+
+    stat: function(fileName, complete, errorAlertCallback) {
+        this._callAndHandleError('stat', [fileName], complete, errorAlertCallback);
     },
 
     getFileList: function(complete) {
-        this._callAndHandleError('readdir', [''], function(err, files) {
+        this._callAndHandleError('readdir', [''], function(err, files, dirStat, filesStat) {
             if (files) {
                 files = files.filter(function(f) { return /\.kdbx$/i.test(f); });
             }
-            complete(err, files);
+            complete(err, files, dirStat, filesStat);
         });
+    },
+
+    deleteFile: function(fileName, complete) {
+        this._callAndHandleError('remove', [fileName], complete);
     },
 
     chooseFile: function(callback) {

@@ -7,7 +7,7 @@ var FieldViewText = require('./field-view-text'),
 
 var FieldViewDate = FieldViewText.extend({
     renderValue: function(value) {
-        var result = value ? Format.dStr(value) : this.model.empty || '';
+        var result = value ? Format.dStr(value) : '';
         if (value && this.model.lessThanNow && value < new Date()) {
             result += ' ' + this.model.lessThanNow;
         }
@@ -15,7 +15,7 @@ var FieldViewDate = FieldViewText.extend({
     },
 
     getEditValue: function(value) {
-        return value ? Format.dStr(value) : this.model.empty || '';
+        return value ? Format.dStr(value) : '';
     },
 
     startEdit: function() {
@@ -30,9 +30,9 @@ var FieldViewDate = FieldViewText.extend({
             i18n: {
                 previousMonth: '',
                 nextMonth: '',
-                months: Locale.Months,
-                weekdays: Locale.Weekdays,
-                weekdaysShort: Locale.WeekdaysShort
+                months: Locale.months,
+                weekdays: Locale.weekdays,
+                weekdaysShort: Locale.weekdaysShort
             }
         });
         _.defer(this.picker.show.bind(this.picker));

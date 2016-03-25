@@ -1,33 +1,38 @@
 'use strict';
 
-var ModalView = require('../views/modal-view');
+var ModalView = require('../views/modal-view'),
+    Locale = require('../util/locale');
 
 var Alerts = {
+    alertDisplayed: false,
+
     buttons: {
-        ok: {result: 'yes', title: 'OK'},
-        yes: {result: 'yes', title: 'Yes'},
-        no: {result: '', title: 'No'}
+        ok: {result: 'yes', title: Locale.alertOk},
+        yes: {result: 'yes', title: Locale.alertYes},
+        no: {result: '', title: Locale.alertNo}
     },
 
     alert: function(config) {
+        Alerts.alertDisplayed = true;
         var view = new ModalView({ model: config });
         view.render();
-        view.on('result', function(res) {
+        view.on('result', function(res, check) {
+            Alerts.alertDisplayed = false;
             if (res && config.success) {
-                config.success(res);
+                config.success(res, check);
             }
             if (!res && config.cancel) {
                 config.cancel();
             }
             if (config.complete) {
-                config.complete(res);
+                config.complete(res, check);
             }
         });
     },
 
     notImplemented: function() {
         this.alert({
-            header: 'Not Implemented',
+            header: Locale.notImplemented,
             body: '',
             icon: 'exclamation-triangle',
             buttons: [this.buttons.ok],

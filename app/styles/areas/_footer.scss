@@ -32,6 +32,7 @@
       right: 1em;
       top: 1em;
       @include th { color: action-color(); }
+      &--error { @include th { color: error-color(); } }
     }
   }
 
@@ -40,5 +41,10 @@
     @include area-selectable(top);
     padding: $base-padding;
     font-size: 1.4em;
+  }
+
+  &__update-icon {
+    @include th { color: action-color(); }
+    @include animation(shake 50s cubic-bezier(.36,.07,.19,.97) 0s infinite);
   }
 }

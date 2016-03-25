@@ -3,6 +3,9 @@
 var fs = require('fs'),
     path = require('path');
 
+/* jshint node:true */
+/* jshint browser:false */
+
 var StringReplacePlugin = require('string-replace-webpack-plugin');
 
 module.exports = function(grunt) {
@@ -13,7 +16,8 @@ module.exports = function(grunt) {
     var webpack = require('webpack');
     var pkg = require('./package.json');
     var dt = new Date().toISOString().replace(/T.*/, '');
-    var electronVersion = '0.34.0';
+    var electronVersion = '0.35.6';
+    var minElectronVersionForUpdate = '0.32.0';
 
     function replaceFont(css) {
         css.walkAtRules('font-face', function (rule) {
@@ -55,8 +59,8 @@ module.exports = function(grunt) {
         },
         clean: {
             dist: ['dist', 'tmp'],
-            desktop_dist: ['dist/desktop'],
-            desktop_tmp: ['tmp/desktop']
+            'desktop_dist': ['dist/desktop'],
+            'desktop_tmp': ['tmp/desktop']
         },
         copy: {
             html: {
@@ -69,12 +73,24 @@ module.exports = function(grunt) {
                 dest: 'tmp/favicon.png',
                 nonull: true
             },
+            touchicon: {
+                src: 'app/touchicon.png',
+                dest: 'tmp/touchicon.png',
+                nonull: true
+            },
             fonts: {
                 src: 'bower_components/font-awesome/fonts/fontawesome-webfont.*',
                 dest: 'tmp/fonts/',
                 nonull: true,
                 expand: true,
                 flatten: true
+            },
+            'desktop_app_content': {
+                cwd: 'electron/',
+                src: '**',
+                dest: 'tmp/desktop/app/',
+                expand: true,
+                nonull: true
             },
             'desktop_osx': {
                 src: 'tmp/desktop/KeeWeb.dmg',
@@ -141,19 +157,27 @@ module.exports = function(grunt) {
         'string-replace': {
             manifest: {
                 options: {
-                    replacements: [{
-                        pattern: '# YYYY-MM-DD:v0.0.0',
-                        replacement: '# ' + dt + ':v' + pkg.version
-                    }]
+                    replacements: [
+                        { pattern: '# YYYY-MM-DD:v0.0.0', replacement: '# ' + dt + ':v' + pkg.version },
+                        { pattern: '# updmin:v0.0.0', replacement: '# updmin:v' + minElectronVersionForUpdate }
+                    ]
                 },
                 files: { 'dist/manifest.appcache': 'app/manifest.appcache' }
+            },
+            'manifest_html': {
+                options: { replacements: [{ pattern: '<html', replacement: '<html manifest="manifest.appcache"' }] },
+                files: { 'dist/index.html': 'dist/index.html' }
+            },
+            'desktop_html': {
+                options: { replacements: [{ pattern: ' manifest="manifest.appcache"', replacement: '' }] },
+                files: { 'tmp/desktop/app/index.html': 'dist/index.html' }
             }
         },
         webpack: {
             js: {
                 entry: {
                     app: 'app',
-                    vendor: ['zepto', 'jquery', 'underscore', 'backbone', 'kdbxweb', 'baron', 'dropbox', 'pikaday', 'filesaver']
+                    vendor: ['jquery', 'underscore', 'backbone', 'kdbxweb', 'baron', 'dropbox', 'pikaday', 'filesaver']
                 },
                 output: {
                     path: 'tmp/js',
@@ -172,8 +196,8 @@ module.exports = function(grunt) {
                         backbone: 'backbone/backbone-min.js',
                         underscore: 'underscore/underscore-min.js',
                         _: 'underscore/underscore-min.js',
-                        zepto: 'zepto/zepto.min.js',
-                        jquery: 'zepto/zepto.min.js',
+                        jquery: 'jquery/dist/jquery.min.js',
+                        hbs: 'handlebars/runtime.js',
                         kdbxweb: 'kdbxweb/dist/kdbxweb.js',
                         dropbox: 'dropbox/lib/dropbox.min.js',
                         baron: 'baron/baron.min.js',
@@ -184,17 +208,18 @@ module.exports = function(grunt) {
                 },
                 module: {
                     loaders: [
-                        { test: /\.html$/, loader: StringReplacePlugin.replace('ejs', { replacements: [{
+                        { test: /\.hbs$/, loader: StringReplacePlugin.replace('handlebars-loader', { replacements: [{
                             pattern: /\r?\n\s*/g,
                             replacement: function() { return '\n'; }
                         }]})},
                         { test: /runtime\-info\.js$/, loader: StringReplacePlugin.replace({ replacements: [
                             { pattern: /@@VERSION/g, replacement: function() { return pkg.version; } },
-                            { pattern: /@@DATE/g, replacement: function() { return dt; } }
+                            { pattern: /@@DATE/g, replacement: function() { return dt; } },
+                            { pattern: /@@COMMIT/g, replacement: function() { return grunt.config.get('gitinfo.local.branch.current.shortSHA'); } }
                         ]})},
-                        { test: /zepto(\.min)?\.js$/, loader: 'exports?Zepto; delete window.$; delete window.Zepto;' },
                         { test: /baron(\.min)?\.js$/, loader: 'exports?baron; delete window.baron;' },
-                        { test: /pikadat\.js$/, loader: 'uglify' }
+                        { test: /pikadat\.js$/, loader: 'uglify' },
+                        { test: /handlebars/, loader: 'strip-sourcemap-loader' }
                     ]
                 },
                 plugins: [
@@ -236,7 +261,7 @@ module.exports = function(grunt) {
                 debounceDelay: 500
             },
             scripts: {
-                files: ['app/scripts/**/*.js', 'app/templates/**/*.html'],
+                files: ['app/scripts/**/*.js', 'app/templates/**/*.hbs'],
                 tasks: ['webpack']
             },
             styles: {
@@ -251,7 +276,7 @@ module.exports = function(grunt) {
         electron: {
             options: {
                 name: 'KeeWeb',
-                dir: 'electron',
+                dir: 'tmp/desktop/app',
                 out: 'tmp/desktop',
                 version: electronVersion,
                 overwrite: true,
@@ -326,20 +351,32 @@ module.exports = function(grunt) {
         },
         compress: {
             linux: {
-                options: {
-                    archive: 'tmp/desktop/KeeWeb.linux.x64.zip'
-                },
+                options: { archive: 'tmp/desktop/KeeWeb.linux.x64.zip' },
                 files: [{ cwd: 'tmp/desktop/KeeWeb-linux-x64', src: '**', expand: true }]
+            },
+            'desktop_update': {
+                options: { archive: 'dist/desktop/UpdateDesktop.zip' },
+                files: [{ cwd: 'tmp/desktop/app', src: '**', expand: true }]
+            }
+        },
+        'validate-desktop-update': {
+            desktop: {
+                options: {
+                    file: 'dist/desktop/UpdateDesktop.zip',
+                    expected: ['main.js', 'app.js', 'index.html', 'package.json', 'node_modules/node-stream-zip/node_stream_zip.js']
+                }
             }
         }
     });
 
     grunt.registerTask('default', [
+        'gitinfo',
         'bower-install-simple',
         'clean',
         'jshint',
         'copy:html',
         'copy:favicon',
+        'copy:touchicon',
         'copy:fonts',
         'webpack',
         'uglify',
@@ -347,13 +384,19 @@ module.exports = function(grunt) {
         'postcss',
         'inline',
         'htmlmin',
-        'string-replace'
+        'string-replace:manifest_html',
+        'string-replace:manifest'
     ]);
 
     grunt.registerTask('desktop', [
+        'default',
         'gitinfo',
         'clean:desktop_tmp',
         'clean:desktop_dist',
+        'copy:desktop_app_content',
+        'string-replace:desktop_html',
+        'compress:desktop_update',
+        'validate-desktop-update',
         'electron',
         'electron_builder',
         'compress:linux',

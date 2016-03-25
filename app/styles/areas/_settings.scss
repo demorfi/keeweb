@@ -35,6 +35,8 @@
     &-pre, &-post { display: none; }
     cursor: pointer;
     @include mobile {
+      line-height: $mobile-back-button-height;
+      height: $mobile-back-button-height;
       padding-bottom: $base-padding-v;
       >i { margin-right: $base-padding-h; }
       &-pre { display: inline; }
@@ -66,9 +68,21 @@
     margin-bottom: $base-padding-v;
   }
 
+  #settings__file-master-pass {
+    font-family: $monospace-font-family;
+  }
+
   &__file-master-pass-warning {
     font-weight: normal;
     float: right;
     display: none;
+  }
+
+  &__general-update-buttons {
+    margin-top: $base-spacing;
+  }
+  &__general-update-btn {
+    width: 15em;
+    margin-right: $small-spacing;
   }
 }

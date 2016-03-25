@@ -4,10 +4,11 @@ var Backbone = require('backbone'),
     KeyHandler = require('../../comp/key-handler'),
     Keys = require('../../const/keys'),
     Alerts = require('../../comp/alerts'),
-    DragDropInfo = require('../../comp/drag-drop-info');
+    DragDropInfo = require('../../comp/drag-drop-info'),
+    Locale = require('../../util/locale');
 
 var MenuItemView = Backbone.View.extend({
-    template: require('templates/menu/menu-item.html'),
+    template: require('templates/menu/menu-item.hbs'),
 
     events: {
         'mouseover': 'mouseover',
@@ -30,6 +31,7 @@ var MenuItemView = Backbone.View.extend({
         this.itemViews = [];
         this.listenTo(this.model, 'change:title', this.changeTitle);
         this.listenTo(this.model, 'change:icon', this.changeIcon);
+        this.listenTo(this.model, 'change:customIconId', this.render);
         this.listenTo(this.model, 'change:active', this.changeActive);
         this.listenTo(this.model, 'change:expanded', this.changeExpanded);
         this.listenTo(this.model, 'change:cls', this.changeCls);
@@ -49,13 +51,14 @@ var MenuItemView = Backbone.View.extend({
         this.renderTemplate(this.model.attributes);
         this.iconEl = this.$el.find('i');
         var items = this.model.get('items');
-        if (items && this.model.get('expanded')) {
+        if (items) {
             items.forEach(function (item) {
                 if (item.get('visible')) {
                     this.insertItem(item);
                 }
             }, this);
         }
+        this.$el.toggleClass('menu__item--collapsed', !this.model.get('expanded'));
         return this;
     },
 
@@ -94,6 +97,7 @@ var MenuItemView = Backbone.View.extend({
 
     changeExpanded: function(model, expanded) {
         this.$el.toggleClass('menu__item--collapsed', !expanded);
+        this.model.setExpanded(expanded);
     },
 
     changeCls: function(model, cls) {
@@ -159,9 +163,9 @@ var MenuItemView = Backbone.View.extend({
     emptyTrash: function(e) {
         e.stopPropagation();
         Alerts.yesno({
-            header: 'Empty trash?',
-            body: 'You will not be able to put items back',
-            icon: 'trash',
+            header: Locale.menuEmptyTrashAlert,
+            body: Locale.menuEmptyTrashAlertBody,
+            icon: 'minus-circle',
             success: function() {
                 Backbone.trigger('empty-trash');
             }
@@ -169,14 +173,14 @@ var MenuItemView = Backbone.View.extend({
     },
 
     dropAllowed: function(e) {
-        return ['text/group', 'text/entry'].indexOf(e.dataTransfer.types[0]) >= 0;
+        return ['text/group', 'text/entry'].indexOf(e.originalEvent.dataTransfer.types[0]) >= 0;
     },
 
     dragstart: function(e) {
         e.stopPropagation();
         if (this.model.get('drag')) {
-            e.dataTransfer.setData('text/group', this.model.id);
-            e.dataTransfer.effectAllowed = 'move';
+            e.originalEvent.dataTransfer.setData('text/group', this.model.id);
+            e.originalEvent.dataTransfer.effectAllowed = 'move';
             DragDropInfo.dragObject = this.model;
         }
     },
@@ -200,7 +204,12 @@ var MenuItemView = Backbone.View.extend({
         e.stopPropagation();
         if (this.model.get('drop') && this.dropAllowed(e)) {
             this.$el.removeClass('menu__item--drag');
-            this.model.moveHere(DragDropInfo.dragObject);
+            if (this.model.get('filterKey') === 'trash') {
+                DragDropInfo.dragObject.moveToTrash();
+                Backbone.trigger('refresh');
+            } else {
+                this.model.moveHere(DragDropInfo.dragObject);
+            }
             Backbone.trigger('refresh');
         }
     }

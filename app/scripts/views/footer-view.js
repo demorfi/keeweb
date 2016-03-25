@@ -3,15 +3,15 @@
 var Backbone = require('backbone'),
     Keys = require('../const/keys'),
     KeyHandler = require('../comp/key-handler'),
-    GeneratorView = require('./generator-view');
+    GeneratorView = require('./generator-view'),
+    UpdateModel = require('../models/update-model');
 
 var FooterView = Backbone.View.extend({
-    template: require('templates/footer.html'),
+    template: require('templates/footer.hbs'),
 
     events: {
         'click .footer__db-item': 'showFile',
         'click .footer__db-open': 'openFile',
-        'click .footer__btn-view': 'switchView',
         'click .footer__btn-help': 'toggleHelp',
         'click .footer__btn-settings': 'toggleSettings',
         'click .footer__btn-generate': 'genPass',
@@ -28,10 +28,14 @@ var FooterView = Backbone.View.extend({
         KeyHandler.onKey(Keys.DOM_VK_COMMA, this.toggleSettings, this, KeyHandler.SHORTCUT_ACTION);
 
         this.listenTo(this.model.files, 'update reset change', this.render);
+        this.listenTo(UpdateModel.instance, 'change:updateStatus', this.render);
     },
 
     render: function () {
-        this.$el.html(this.template(this.model));
+        this.renderTemplate({
+            files: this.model.files,
+            updateAvailable: ['ready', 'found'].indexOf(UpdateModel.instance.get('updateStatus')) >= 0
+        }, { plain: true });
         return this;
     },
 
@@ -68,10 +72,6 @@ var FooterView = Backbone.View.extend({
 
     saveAll: function() {
         Backbone.trigger('save-all');
-    },
-
-    switchView: function() {
-        Backbone.trigger('switch-view');
     },
 
     toggleHelp: function() {
